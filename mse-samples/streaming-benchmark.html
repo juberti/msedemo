@@ -1,0 +1,139 @@
+<!doctype html>
+
+<title>Streaming MSE Sample</title>
+
+<style>
+
+#video-select-container {
+  display: flex;
+  margin-top: 32px;
+  margin-bottom: 32px;
+}
+
+#video-select-container > * {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+</style>
+
+<h1>Streaming MSE Sample</h1>
+
+<p>
+  This sample shows a video file (selected) downloaded using the fetch() API
+  and streamed using the response.body ReadableStream to a MSE SourceBuffer.
+</p>
+
+<h2>Select video</h2>
+
+<div id="video-select-container">
+  <div>
+    <select>
+      <option
+          path="/static/big-buck-bunny_trailer.webm"
+          content-type="video/webm; codecs=&quot;vp8, vorbis&quot;">
+        Big Buck Bunny Trailer (480p) (WebM/VP8/Vorbis)
+      </option>
+      <option
+          path="/static/Volcano_Lava_Sample.webm.720p.vp9.webm"
+          content-type="video/webm; codecs=&quot;vp9, opus&quot;">
+        Volcano Lava Sample (720p) (WebM/VP9/Opus)
+      </option>
+      <option
+          path="/static/cars-nyc.webm"
+          content-type="video/webm; codecs=&quot;vp8&quot;">
+        Cars NYC (480p) (WebM/VP8)
+      </option>
+      <option
+          path="/static/tears_of_steel_1080p.webm"
+          content-type="video/webm; codecs=&quot;vp8, vorbis&quot;">
+        Tears of Steel (1080p) (WebM/VP8/Vorbis)
+      </option>
+    </select>
+  </div>
+
+  <button id="playButton">Play</button>
+</div>
+
+<h2 id="now-playing-title">
+  Now playing: <span id="now-playing"></span>
+</h2>
+
+<div>
+  <video playsinline controls></video>
+</div>
+
+<div id="time-to-playing">
+</div>
+
+<script type="module">
+
+const videoElement = document.querySelector('video');
+const selectElement = document.querySelector('select');
+const playButton = document.querySelector('#playButton');
+
+playButton.onclick = () => {
+  playButton.disabled = true;
+  selectElement.disabled = true;
+  const selectedElement = selectElement.selectedOptions[0];
+  const path = selectedElement.getAttribute('path');
+  const contentType = selectedElement.getAttribute('content-type');
+  document.querySelector('#now-playing').innerText = selectedElement.innerText;
+  play(path, contentType);
+};
+
+videoElement.onerror = () => {
+  console.error(
+      'video element error', videoElement.error.code, 'details',
+      videoElement.error.message);
+  const pre = document.createElement('pre');
+  pre.style.backgroundColor = 'red';
+  pre.style.padding = '12px';
+  pre.innerText =
+      `video element error ${videoElement.error.code}\n\n` +
+      `details: ${videoElement.error.message}`;
+  document.querySelector('body').appendChild(pre);
+};
+
+async function play(path, contentType) {
+  const playStart = performance.now();
+
+  const mediaSource = new MediaSource();
+  videoElement.src = URL.createObjectURL(mediaSource);
+  videoElement.addEventListener('playing', () => {
+    const elapsedMs = performance.now() - playStart;
+    document.querySelector('#time-to-playing').innerText =
+        `Time to playing: ${elapsedMs.toPrecision(5)} ms`;
+  }, {once: true});
+
+  await new Promise(resolve => {
+    mediaSource.addEventListener('sourceopen', () => resolve(), {once: true});
+  });
+
+  const sourceBuffer = mediaSource.addSourceBuffer(contentType);
+
+  const response = await fetch(path);
+  if (!response.ok) {
+    return;
+  }
+
+  videoElement.play();
+  const reader = response.body.getReader();
+  let first = true;
+  while (true) {
+    const {value, done} = await reader.read();
+    if (sourceBuffer.updating) {
+      await new Promise(resolve => {
+        sourceBuffer.addEventListener(
+            'updateend', () => setTimeout(resolve, 0), {once: true});
+      });
+    }
+    if (done) {
+      mediaSource.endOfStream();
+      break;
+    }
+    sourceBuffer.appendBuffer(value);
+  }
+}
+
+</script>
